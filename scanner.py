@@ -6,24 +6,17 @@ import time
 def scan_port(target, port):
     """Check whether a TCP port is open."""
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(0.5)
-
     try:
-        result = sock.connect_ex((target, port))
-
-        if result == 0:
-            return True
-
-        return False
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            return sock.connect_ex((target, port)) == 0
 
     except socket.error:
         return False
 
-    finally:
-        sock.close()
-
 def get_service(port):
+    """Return the registered TCP service for a port."""
+
     try:
         service = socket.getservbyport(port, "tcp")
         return service
@@ -31,23 +24,42 @@ def get_service(port):
         return "Unknown"
     
 def grab_banner(target, port):
+    """Attempt to retrieve a banner from an open port."""
+
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            sock.connect((target, port))
 
-        sock.connect((target, port))
+            request = (
+            f"GET / HTTP/1.0\r\n"
+            f"Host: {target}\r\n"
+            f"Connection: close\r\n\r\n"
+            ).encode()
+            sock.sendall(request)
 
-        request = b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"
-        sock.sendall(request)
+            banner = sock.recv(1024).decode("utf-8", errors="ignore").strip()
 
-        banner = sock.recv(1024).decode("utf-8", errors="ignore")
+            
+            if banner:
+                return banner
 
-        sock.close()
-
-        return banner
+            return "No banner received"
 
     except (socket.timeout, socket.error):
         return "No banner received"
+def validate_ports(start_port, end_port):
+    """Validate the supplied port range."""
+
+    if not 1 <= start_port <= 65535:
+        return False, "Start port must be between 1 and 65535."
+    if not 1 <= end_port <= 65535:
+        return False, "End port must be between 1 and 65535."
+
+    if start_port > end_port:
+        return False, "Start port cannot be greater than end port."
+
+    return True, ""
 
 def main():
 
@@ -64,16 +76,10 @@ def main():
         print("Ports must be numbers.")
         sys.exit(1)
 
-    if not 1 <= start_port <= 65535:
-        print("Start port must be between 1 and 65535.")
-        sys.exit(1)
+    valid, error_message = validate_ports(start_port, end_port)
 
-    if not 1 <= end_port <= 65535:
-        print("End port must be between 1 and 65535.")
-        sys.exit(1)
-
-    if start_port > end_port:
-        print("Start port cannot be greater than end port.")
+    if not valid:
+        print(error_message)
         sys.exit(1)
 
     try:
@@ -82,9 +88,9 @@ def main():
         print(f"Unable to resolve hostname: {target}")
         sys.exit(1)
 
-    print("=" * 50)
+    print("=" * 60)
     print("Python Network Port Scanner")
-    print("=" * 50)
+    print("=" * 60)
     print(f"Target: {target}")
     print(f"IP Address: {target_ip}")
     print(f"Port range: {start_port}-{end_port}")
